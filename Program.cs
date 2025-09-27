@@ -1,45 +1,20 @@
 using DotNetEnv;
+using emotions_gateway.Endpoints;
+using emotions_gateway.Extensions;
 using emotions_gateway.middlewares;
-using Microsoft.OpenApi.Models;
+
 
 var builder = WebApplication.CreateBuilder(args);
-
 Env.Load();
 
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new() { Title = "Emotions Gateway", Version = "v1" });
 
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer",
-        BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "Digite: Bearer {seu-token}"
-    });
-
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
-});
+builder.Services.AddCustomCors();
+builder.Services.AddCustomSwagger();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+
+app.UseCors("AllowFrontend");
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -48,13 +23,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseTokenAuth();
+app.UseWhen(ctx => ctx.Request.Path.StartsWithSegments("/health"),
+    subApp => subApp.UseTokenAuth());
 
-app.MapGet("/health", () =>
-{
-    return Results.Ok(new { status = "Healthy" });
-})
-.WithName("health")
-.WithOpenApi();
+app.MapHealthEndpoints();
+app.UseWebSockets();
+app.MapVideoWebSocketEndpoint();
 
 app.Run();

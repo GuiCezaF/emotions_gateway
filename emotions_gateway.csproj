@@ -10,6 +10,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="DTOs\**" />
+    <Compile Remove="utils\**" />
+    <Content Remove="DTOs\**" />
+    <Content Remove="utils\**" />
+    <EmbeddedResource Remove="DTOs\**" />
+    <EmbeddedResource Remove="utils\**" />
+    <None Remove="DTOs\**" />
+    <None Remove="utils\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Remove="appsettings.example.Development.json" />
     <Content Remove="appsettings.example.json" />
   </ItemGroup>
