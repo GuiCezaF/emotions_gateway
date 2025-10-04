@@ -1,4 +1,5 @@
-﻿using System.Net.WebSockets;
+﻿using StackExchange.Redis;
+using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 
@@ -6,9 +7,14 @@ namespace emotions_gateway.Endpoints;
 
 public static class VideoWebSocketEndpoint
 {
+    private const int BufferSize = 256 * 1024; // 256 KB
+    private const string RedisChannel = "emotion_results";
+    private const string RedisInputList = "emotion_frames";
+    private const string RedisOutputList = "emotion_results";
+
     public static void MapVideoWebSocketEndpoint(this IEndpointRouteBuilder app)
     {
-        app.Map("/emotions/video", async (HttpContext ctx) =>
+        app.Map("/emotions/video", async (HttpContext ctx, IConnectionMultiplexer redis) =>
         {
             if (!ctx.WebSockets.IsWebSocketRequest)
             {
@@ -18,33 +24,90 @@ public static class VideoWebSocketEndpoint
             }
 
             using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
-            var buffer = new byte[256 * 1024];
-            var closeReceived = false;
+            var buffer = new byte[BufferSize];
+            var db = redis.GetDatabase();
+            var sub = redis.GetSubscriber();
+            var cancellationToken = ctx.RequestAborted;
 
-            while (!closeReceived && socket.State == WebSocketState.Open)
+            await sub.SubscribeAsync(RedisChannel, async (_, msg) =>
             {
-                var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), ctx.RequestAborted);
-
-                if (result.MessageType == WebSocketMessageType.Close)
+                if (socket.State == WebSocketState.Open)
                 {
-                    closeReceived = true;
-                    await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed by client", ctx.RequestAborted);
+                    var bytes = Encoding.UTF8.GetBytes(msg.ToString());
+                    await SafeSendAsync(socket, bytes, WebSocketMessageType.Text, cancellationToken);
+                }
+            });
+
+            _ = Task.Run(async () =>
+            {
+                while (!cancellationToken.IsCancellationRequested && socket.State == WebSocketState.Open)
+                {
+                    try
+                    {
+                        
+                        var result = await db.ListLeftPopAsync(RedisOutputList);
+                        if (!result.IsNullOrEmpty)
+                        {
+                            var json = result.ToString();
+                            var bytes = Encoding.UTF8.GetBytes(json);
+                            await SafeSendAsync(socket, bytes, WebSocketMessageType.Text, cancellationToken);
+                        }
+                        else
+                        {
+                            await Task.Delay(200, cancellationToken); // evita busy loop
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[WS] Erro ao consumir lista do Redis: {ex.Message}");
+                        await Task.Delay(1000, cancellationToken);
+                    }
+                }
+            }, cancellationToken);
+
+            // Loop principal de recepção (frames do cliente)
+            while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+            {
+                WebSocketReceiveResult? result = null;
+                try
+                {
+                    result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[WS] Erro na recepção: {ex.Message}");
                     break;
                 }
 
-                if (result.MessageType == WebSocketMessageType.Text)
+                if (result == null) continue;
+
+                switch (result.MessageType)
                 {
-                    await HandleTextMessage(socket, buffer, result.Count, ctx);
-                }
-                else if (result.MessageType == WebSocketMessageType.Binary)
-                {
-                    Console.WriteLine($"[WS] Mensagem binária inesperada ({result.Count} bytes) – ignorada.");
+                    case WebSocketMessageType.Close:
+                        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed by client", cancellationToken);
+                        break;
+
+                    case WebSocketMessageType.Text:
+                        await HandleTextMessage(socket, buffer, result.Count, db, cancellationToken);
+                        break;
+
+                    case WebSocketMessageType.Binary:
+                        Console.WriteLine($"[WS] Mensagem binária inesperada ({result.Count} bytes) – ignorada.");
+                        break;
                 }
             }
         });
     }
 
-    private static async Task HandleTextMessage(WebSocket socket, byte[] buffer, int count, HttpContext ctx)
+    private static async Task HandleTextMessage(WebSocket socket, byte[] buffer, int count, IDatabase db, CancellationToken cancellationToken)
     {
         var json = Encoding.UTF8.GetString(buffer, 0, count);
 
@@ -54,22 +117,40 @@ public static class VideoWebSocketEndpoint
             var root = doc.RootElement;
 
             var timestamp = root.GetProperty("timestamp").GetString();
-            var base64 = root.GetProperty("frame").GetString();
+            var correlationId = root.GetProperty("correlation_id").GetString();
 
-            Console.WriteLine($"[WS] Timestamp: {timestamp}, frame size: {base64?.Length ?? 0} chars");
+            Console.WriteLine($"[WS] Recebido frame do usuário {correlationId} em {timestamp}");
 
-            var echoObj = new { echo = "received", timestamp };
-            var echoJson = JsonSerializer.Serialize(echoObj);
-            var echoBytes = Encoding.UTF8.GetBytes(echoJson);
-
-            await socket.SendAsync(new ArraySegment<byte>(echoBytes), WebSocketMessageType.Text, true, ctx.RequestAborted);
+            await db.ListRightPushAsync(RedisInputList, json);
+        }
+        catch (JsonException ex)
+        {
+            Console.WriteLine($"[WS] Erro ao parsear JSON: {ex.Message}");
+            await SendError(socket, "invalid payload", cancellationToken);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WS] Erro ao parsear JSON: {ex.Message}");
-            var errMsg = JsonSerializer.Serialize(new { error = "invalid payload" });
-            var errBytes = Encoding.UTF8.GetBytes(errMsg);
-            await socket.SendAsync(new ArraySegment<byte>(errBytes), WebSocketMessageType.Text, true, ctx.RequestAborted);
+            Console.WriteLine($"[WS] Erro inesperado: {ex.Message}");
+            await SendError(socket, "internal server error", cancellationToken);
         }
+    }
+
+    private static async Task SafeSendAsync(WebSocket socket, byte[] data, WebSocketMessageType type, CancellationToken cancellationToken)
+    {
+        if (socket.State != WebSocketState.Open) return;
+        try
+        {
+            await socket.SendAsync(new ArraySegment<byte>(data), type, true, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WS] Erro ao enviar mensagem: {ex.Message}");
+        }
+    }
+
+    private static async Task SendError(WebSocket socket, string message, CancellationToken cancellationToken)
+    {
+        var errJson = JsonSerializer.Serialize(new { error = message });
+        await SafeSendAsync(socket, Encoding.UTF8.GetBytes(errJson), WebSocketMessageType.Text, cancellationToken);
     }
 }
