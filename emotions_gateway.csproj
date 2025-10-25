@@ -10,17 +10,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="DTOs\**" />
-    <Compile Remove="utils\**" />
-    <Content Remove="DTOs\**" />
-    <Content Remove="utils\**" />
-    <EmbeddedResource Remove="DTOs\**" />
-    <EmbeddedResource Remove="utils\**" />
-    <None Remove="DTOs\**" />
-    <None Remove="utils\**" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Content Remove="appsettings.example.Development.json" />
     <Content Remove="appsettings.example.json" />
   </ItemGroup>
@@ -28,7 +17,9 @@
   <ItemGroup>
     <PackageReference Include="DotNetEnv" Version="3.1.1" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.19" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.10" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
     <PackageReference Include="StackExchange.Redis" Version="2.9.25" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>

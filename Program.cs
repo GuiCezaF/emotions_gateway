@@ -1,7 +1,9 @@
 using DotNetEnv;
+using emotions_gateway.Database;
 using emotions_gateway.Endpoints;
 using emotions_gateway.Extensions;
 using emotions_gateway.middlewares;
+using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 
 
@@ -10,9 +12,24 @@ Env.Load();
 
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(
-    ConnectionMultiplexer.Connect("redis:6379,abortConnect=false") // TODO: colocar no .env
+    ConnectionMultiplexer.Connect(Environment.GetEnvironmentVariable("RedisURL"))
 );
 
+var dbUrl = Environment.GetEnvironmentVariable("DatabaseURL");
+
+if (string.IsNullOrEmpty(dbUrl))
+{
+    throw new Exception("Variável de ambiente 'DatabaseURL' não encontrada!");
+}
+
+var uri = new Uri(dbUrl);
+var userInfo = uri.UserInfo.Split(':');
+
+var connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={userInfo[0]};Password={userInfo[1]}";
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(connectionString)
+);
 
 builder.Services.AddCustomCors();
 builder.Services.AddCustomSwagger();
@@ -35,5 +52,6 @@ app.UseWhen(ctx => ctx.Request.Path.StartsWithSegments("/health"),
 app.MapHealthEndpoints();
 app.UseWebSockets();
 app.MapVideoWebSocketEndpoint();
+app.MapEmotions();
 
 app.Run();
