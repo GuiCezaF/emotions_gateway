@@ -1,56 +1,61 @@
 ﻿using emotions_gateway.Database;
 using emotions_gateway.DTOs;
 using Microsoft.EntityFrameworkCore;
+using System.Linq; 
+using System;
 
-namespace emotions_gateway.Endpoints;
-
-public static class EmotionsEndpoint
+namespace emotions_gateway.Endpoints
 {
-    public static void MapEmotions(this IEndpointRouteBuilder app)
+    public static class EmotionsEndpoint
     {
-        app.MapGet("/emotions", async (HttpContext ctx, AppDbContext db) =>
+        public static void MapEmotions(this IEndpointRouteBuilder app)
         {
-            ctx.Response.ContentType = "application/json";
-
-            // 🔹 Pega parâmetros opcionais de data (ex: /emotions?start=2025-10-01&end=2025-10-25)
-            DateTime? start = null;
-            DateTime? end = null;
-
-            if (ctx.Request.Query.ContainsKey("start"))
-                start = DateTime.Parse(ctx.Request.Query["start"]!);
-
-            if (ctx.Request.Query.ContainsKey("end"))
-                end = DateTime.Parse(ctx.Request.Query["end"]!);
-
-            var query = db.emotions.AsQueryable();
-
-            if (start.HasValue)
+            app.MapGet("/emotions", async (HttpContext ctx, AppDbContext db) =>
             {
-                var startUtc = start.Value.Date.ToUniversalTime();
-                query = query.Where(e => e.timestamp >= startUtc);
-            }
+                ctx.Response.ContentType = "application/json";
 
-            if (end.HasValue)
-            {
-                var endUtc = end.Value.Date.AddDays(1).ToUniversalTime();
-                query = query.Where(e => e.timestamp < endUtc);
-            }
+                DateTime? start = null;
+                DateTime? end = null;
 
-            var result = await query
-                .GroupBy(g => g.emotion)
-                .Select(s => new EmotionDto
+                if (ctx.Request.Query.ContainsKey("start"))
+                    start = DateTime.Parse(ctx.Request.Query["start"]!);
+
+                if (ctx.Request.Query.ContainsKey("end"))
+                    end = DateTime.Parse(ctx.Request.Query["end"]!);
+
+                var query = db.emotions
+                    .Include(e => e.EmotionType)
+                    .AsQueryable();
+
+                if (start.HasValue)
                 {
-                    Title = s.Key,
-                    Value = s.Count()
-                })
-                .OrderByDescending(o => o.Value)
-                .ToListAsync();
-            if (result == null || result.Count == 0)
-            {
-                return Results.NotFound(new { message = "Nenhuma emoção encontrada no período informado." });
-            }
+                    var startUtc = start.Value.Date.ToUniversalTime();
+                    query = query.Where(e => e.timestamp >= startUtc);
+                }
 
-            return Results.Ok(result);
-        });
+                if (end.HasValue)
+                {
+                    var endUtc = end.Value.Date.AddDays(1).ToUniversalTime();
+                    query = query.Where(e => e.timestamp < endUtc);
+                }
+
+                var result = await query
+                    .GroupBy(g => g.EmotionType.name) 
+                    .Select(s => new EmotionDto
+                    {
+                        Title = s.Key,
+                        Value = s.Count()
+                    })
+                    .OrderByDescending(o => o.Value)
+                    .ToListAsync();
+
+                if (result == null || result.Count == 0) 
+                {
+                    return Results.NotFound(new { message = "Nenhuma emoção encontrada no período informado." });
+                }
+
+                return Results.Ok(result);
+            });
+        }
     }
 }

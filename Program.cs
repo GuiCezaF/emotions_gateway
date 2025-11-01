@@ -19,7 +19,7 @@ var dbUrl = Environment.GetEnvironmentVariable("DatabaseURL");
 
 if (string.IsNullOrEmpty(dbUrl))
 {
-    throw new Exception("Variável de ambiente 'DatabaseURL' não encontrada!");
+    throw new Exception("Variï¿½vel de ambiente 'DatabaseURL' nï¿½o encontrada!");
 }
 
 var uri = new Uri(dbUrl);
@@ -31,7 +31,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString)
 );
 
-builder.Services.AddCustomCors();
+var frontendUrl = Environment.GetEnvironmentVariable("FrontendURL") ?? "http://localhost:80";
+
+builder.Services.AddCustomCors(frontendUrl);
 builder.Services.AddCustomSwagger();
 
 var app = builder.Build();

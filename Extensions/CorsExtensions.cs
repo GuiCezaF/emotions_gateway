@@ -2,13 +2,13 @@
 
 public static class CorsExtensions
 {
-    public static void AddCustomCors(this IServiceCollection services)
+    public static void AddCustomCors(this IServiceCollection services, string frontendUrl)
     {
         services.AddCors(options =>
         {
             options.AddPolicy("AllowFrontend", policy =>
             {
-                policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+                policy.WithOrigins(frontendUrl)
                         .AllowAnyHeader()
                         .AllowAnyMethod()
                         .AllowCredentials();

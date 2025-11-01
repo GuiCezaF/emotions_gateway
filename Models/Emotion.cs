@@ -1,12 +1,20 @@
-﻿namespace emotions_gateway.Models;
+﻿using System.ComponentModel.DataAnnotations.Schema;
 
-public class Emotions
+namespace emotions_gateway.Models
 {
-    public Guid id { get; set; }
-    public Guid user_id { get; set; }
-    public string modality { get; set; }  // ex: video, audio
-    public string emotion { get; set; }   // ex: happy, sad
-    public float confidence { get; set; }     // ex: 0.95
-    public DateTime timestamp { get; set; }
+    [Table("emotions")]
+    public class Emotions
+    {
+        public Guid id { get; set; }
+        public string user_id { get; set; }
+        public string modality { get; set; }
+        public decimal confidence { get; set; }
+        public DateTime timestamp { get; set; }
 
+        [Column("emotion_type_id")]
+        public string emotion_type_id { get; set; }
+
+        [ForeignKey("emotion_type_id")]
+        public EmotionsType EmotionType { get; set; }
+    }
 }
