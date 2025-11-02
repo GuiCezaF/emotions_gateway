@@ -3,6 +3,7 @@ using emotions_gateway.Database;
 using emotions_gateway.Endpoints;
 using emotions_gateway.Extensions;
 using emotions_gateway.middlewares;
+using emotions_gateway.Services;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 
@@ -19,7 +20,7 @@ var dbUrl = Environment.GetEnvironmentVariable("DatabaseURL");
 
 if (string.IsNullOrEmpty(dbUrl))
 {
-    throw new Exception("Vari�vel de ambiente 'DatabaseURL' n�o encontrada!");
+    throw new Exception("Variável de ambiente 'DatabaseURL' não encontrada!");
 }
 
 var uri = new Uri(dbUrl);
@@ -35,6 +36,9 @@ var frontendUrl = Environment.GetEnvironmentVariable("FrontendURL") ?? "http://l
 
 builder.Services.AddCustomCors(frontendUrl);
 builder.Services.AddCustomSwagger();
+
+builder.Services.AddSingleton<ChatWebSocketService>();
+builder.Services.AddSingleton<VideoWebSocketService>();
 
 var app = builder.Build();
 
@@ -54,6 +58,7 @@ app.UseWhen(ctx => ctx.Request.Path.StartsWithSegments("/health"),
 app.MapHealthEndpoints();
 app.UseWebSockets();
 app.MapVideoWebSocketEndpoint();
+app.MapChatWebSocketEndpoint();
 app.MapEmotions();
 
 app.Run();
